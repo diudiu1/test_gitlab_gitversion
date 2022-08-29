@@ -1,0 +1,17 @@
+    master->dev->feature:1111
+feature/quanxian 开始权限开发1
+feature/quanxian 开始权限开发2
+feature/quanxian 开始权限开发3
+    feature->dev->release/quanxian   合并代码，并开始预发布版本
+release/quanxian 权限开发预发布修复bug1   tag release-0.0.1
+release/quanxian 权限开发预发布修复bug2   tag release-0.0.2
+    release/quanxian->dev->master
+    master tag v1.0.0
+    master->hotfix/1.0.1
+hotfix/1.0.1 修复bug1
+hotfix/1.0.1 修复bug2
+hotfix/1.0.1 修复bug3
+    hotfix/1.0.1->master   tag v1.0.1
+    master->hotfix/1.0.2
+hotfix/1.0.2 修复bug4
+    hotfix/1.0.2->master   tag v1.0.2

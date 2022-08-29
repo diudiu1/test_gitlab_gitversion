@@ -1,0 +1,84 @@
+stages:
+  - .pre
+  - test
+  - build
+
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_TAG'
+      when: never
+    - if: $CI_COMMIT_BRANCH
+      when: always
+
+gitversion_function:
+  image: 
+    name: gittools/gitversion
+    entrypoint: [""]
+  stage: .pre    
+  variables:
+    GIT_STRATEGY: none
+  script:
+    - | 
+      echo $CI_REPOSITORY_URL
+      echo $CI_COMMIT_REF_NAME
+      echo $CI_PROJECT_DIR
+      echo $CI_COMMIT_SHA
+      echo $VERBOSITYSETTING
+
+      git clone --filter=blob:none --no-checkout $CI_REPOSITORY_URL $CI_PROJECT_DIR
+      git checkout $CI_COMMIT_SHA GitVersion.yml || true
+      
+      
+      /tools/dotnet-gitversion /url $CI_REPOSITORY_URL /b $CI_COMMIT_REF_NAME /c $CI_COMMIT_SHA /dynamicRepoLocation $CI_PROJECT_DIR $VERBOSITYSETTING | tee thisversion.json
+
+      for keyval in $( grep -E '": [^\{]' thisversion.json | sed -e 's/: /=/' -e "s/\(\,\)$//"); do
+        echo "export $keyval"
+        eval export $keyval
+      done
+
+      echo "Exporting some of these to dotenv files for variable usage in the pipeline and subsequent jobs..."
+      echo "SemVer=${SemVer}" >> thisversion.env
+      echo "PACKAGE_VERSION=${LegacySemVer}" >> thisversion.env
+      echo "LegacySemVer=${LegacySemVer}" >> thisversion.env
+      echo "InformationalVersion=${InformationalVersion}" >> thisversion.env
+      echo "Major=${Major}" >> thisversion.env
+      echo "Minor=${Minor}" >> thisversion.env
+      echo "Patch=${Patch}" >> thisversion.env
+      echo "MajorMinorPatch=${MajorMinorPatch}" >> thisversion.env
+      echo "NuGetVersionV2=${NuGetVersionV2}" >> thisversion.env
+  artifacts:
+    reports:
+      #propagates variables into the pipeline level
+      dotenv: thisversion.env   
+
+test-code-unit:
+  image: mcr.microsoft.com/dotnet/sdk:6.0
+  stage: test
+  script:
+    - echo "单元测试"
+    - echo $PACKAGE_VERSION
+    - cd testsln/TestApi.UnitTest
+    - dotnet test
+    
+
+
+test-code-functional:
+  image: mcr.microsoft.com/dotnet/sdk:6.0
+  stage: test
+  script:
+    - echo "功能测试"
+    - echo $PACKAGE_VERSION
+    - cd testsln/TestApi.FunctionalTest
+    - dotnet test
+
+build-code-job:
+  image: docker:latest
+  stage: build
+  script:
+    - cd testsln
+    - echo $PACKAGE_VERSION
+    - docker build -f TestApi/Dockerfile -t test.api:$PACKAGE_VERSION .
+
+    - echo "推送镜像到镜像仓库"
+    #- docker push test.api:$PACKAGE_VERSION
