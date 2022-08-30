@@ -2,6 +2,7 @@ stages:
   - .pre
   - test
   - build
+  - release
 
 
 workflow:
@@ -82,3 +83,16 @@ build-code-job:
 
     - echo "推送镜像到镜像仓库"
     #- docker push test.api:$PACKAGE_VERSION
+
+do_gitlab_release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli
+  rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_REF_PROTECTED != "false"'
+      #This last rule will do a release for any protected branch. Literal branch names can be used if desired.
+
+  script:
+    - > 
+      release-cli create --name ${PACKAGE_VERSION} --description $CI_COMMIT_REF_NAME-$CI_JOB_ID
+      --tag-name ${PACKAGE_VERSION} --ref $CI_COMMIT_SHA
+      --assets-link "{\"name\":\"Packaged Artifact\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGENAME}/${PACKAGE_VERSION}/${PACKAGENAME}.${PACKAGE_VERSION}.tar.gz\"}"
