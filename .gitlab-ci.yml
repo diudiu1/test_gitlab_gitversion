@@ -1,7 +1,8 @@
 stages:
-  - .pre
   - test
+  - gitversion
   - build
+  - pushfile
   - release
 
 
@@ -12,11 +13,27 @@ workflow:
     - if: $CI_COMMIT_BRANCH
       when: always
 
+test-code-unit:
+  image: mcr.microsoft.com/dotnet/sdk:6.0
+  stage: test
+  script:
+    - echo "单元测试"
+    - cd testsln/TestApi.UnitTest
+    - dotnet test
+
+test-code-functional:
+  image: mcr.microsoft.com/dotnet/sdk:6.0
+  stage: test
+  script:
+    - echo "功能测试"
+    - cd testsln/TestApi.FunctionalTest
+    - dotnet test
+
 gitversion_function:
   image: 
     name: gittools/gitversion
     entrypoint: [""]
-  stage: .pre    
+  stage: gitversion    
   variables:
     GIT_STRATEGY: none
   script:
@@ -53,25 +70,7 @@ gitversion_function:
       #propagates variables into the pipeline level
       dotenv: thisversion.env   
 
-test-code-unit:
-  image: mcr.microsoft.com/dotnet/sdk:6.0
-  stage: test
-  script:
-    - echo "单元测试"
-    - echo $PACKAGE_VERSION
-    - cd testsln/TestApi.UnitTest
-    - dotnet test
-    
 
-
-test-code-functional:
-  image: mcr.microsoft.com/dotnet/sdk:6.0
-  stage: test
-  script:
-    - echo "功能测试"
-    - echo $PACKAGE_VERSION
-    - cd testsln/TestApi.FunctionalTest
-    - dotnet test
 
 build-code-job:
   image: docker:latest
@@ -80,9 +79,36 @@ build-code-job:
     - cd testsln
     - echo $PACKAGE_VERSION
     - docker build -f TestApi/Dockerfile -t test.api:$PACKAGE_VERSION .
-
+    
     - echo "推送镜像到镜像仓库"
     #- docker push test.api:$PACKAGE_VERSION
+
+generic_create_package:
+  stage: pushfile
+  image: bash:latest
+  script:
+    - |
+      if [[ "${CI_SCRIPT_TRACE}" == "true" ]] || [[ -n "${CI_DEBUG_TRACE}" ]]; then
+        echo "Debugging enabled"
+        set -xv
+      fi    
+      printenv
+      sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories
+      apk update
+      apk add curl
+      echo "Creating something to put in the package..."
+      echo "${PACKAGE_VERSION}" > version.txt
+      echo "version.txt" > includefiles.lst
+      tar -czvf ${CI_PROJECT_NAME}.${PACKAGE_VERSION}.tar.gz -T includefiles.lst
+      if [[ $CI_COMMIT_REF_PROTECTED == "false" ]]; then
+        echo "To prevent clutter, packages are not pushed or download tested unless the branch is protected - they are available in job artifacts for inspection."
+      else
+        echo "Pushing package to registry."  
+        curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file ${CI_PROJECT_NAME}.${PACKAGE_VERSION}.tar.gz ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_PROJECT_NAME}/${PACKAGE_VERSION}/${CI_PROJECT_NAME}.${PACKAGE_VERSION}.tar.gz
+      fi
+  artifacts:
+    paths:
+      - '*.tar.gz'
 
 do_gitlab_release:
   stage: release
@@ -95,4 +121,4 @@ do_gitlab_release:
     - > 
       release-cli create --name ${PACKAGE_VERSION} --description $CI_COMMIT_REF_NAME-$CI_JOB_ID
       --tag-name ${PACKAGE_VERSION} --ref $CI_COMMIT_SHA
-      --assets-link "{\"name\":\"Packaged Artifact\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGENAME}/${PACKAGE_VERSION}/${PACKAGENAME}.${PACKAGE_VERSION}.tar.gz\"}"
+      --assets-link "{\"name\":\"Packaged Artifact\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_PROJECT_NAME}/${PACKAGE_VERSION}/${CI_PROJECT_NAME}.${PACKAGE_VERSION}.tar.gz\"}"
