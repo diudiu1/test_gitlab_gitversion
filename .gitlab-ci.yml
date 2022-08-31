@@ -32,7 +32,9 @@ get-version:
   image: 
     name: gittools/gitversion
     entrypoint: [""]
-  stage: version    
+  stage: version
+  rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_REF_PROTECTED != "false"'     
   variables:
     GIT_STRATEGY: none
   script:
@@ -72,6 +74,8 @@ get-version:
 build-image-job:
   image: docker:latest
   stage: build
+  rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_REF_PROTECTED != "false"'
   script:
     - cd testsln
     - echo $PACKAGE_VERSION
@@ -81,7 +85,6 @@ build-image-job:
     #- docker login -u admin -p Harbor12345 http://127.0.0.1:30003
     #- docker tag test.api:$PACKAGE_VERSION 127.0.0.1:30003/test/test.api:$PACKAGE_VERSION   #新的标签
     #- docker push 127.0.0.1:30003/test/test.api:$PACKAGE_VERSION    # 推送
-
 
 create-package-job:
   stage: pushfile
