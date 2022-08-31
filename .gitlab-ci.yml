@@ -1,10 +1,9 @@
 stages:
   - test
-  - gitversion
+  - version
   - build
   - pushfile
   - release
-
 
 workflow:
   rules:
@@ -29,11 +28,11 @@ test-code-functional:
     - cd testsln/TestApi.FunctionalTest
     - dotnet test
 
-gitversion_function:
+get-version:
   image: 
     name: gittools/gitversion
     entrypoint: [""]
-  stage: gitversion    
+  stage: version    
   variables:
     GIT_STRATEGY: none
   script:
@@ -70,9 +69,7 @@ gitversion_function:
       #propagates variables into the pipeline level
       dotenv: thisversion.env   
 
-
-
-build-code-job:
+build-image-job:
   image: docker:latest
   stage: build
   script:
@@ -81,11 +78,16 @@ build-code-job:
     - docker build -f TestApi/Dockerfile -t test.api:$PACKAGE_VERSION .
     
     - echo "推送镜像到镜像仓库"
-    #- docker push test.api:$PACKAGE_VERSION
+    #- docker login -u admin -p Harbor12345 http://127.0.0.1:30003
+    #- docker tag test.api:$PACKAGE_VERSION 127.0.0.1:30003/test/test.api:$PACKAGE_VERSION   #新的标签
+    #- docker push 127.0.0.1:30003/test/test.api:$PACKAGE_VERSION    # 推送
 
-generic_create_package:
+
+create-package-job:
   stage: pushfile
   image: bash:latest
+  rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_REF_PROTECTED != "false"'
   script:
     - |
       if [[ "${CI_SCRIPT_TRACE}" == "true" ]] || [[ -n "${CI_DEBUG_TRACE}" ]]; then
@@ -96,29 +98,27 @@ generic_create_package:
       sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories
       apk update
       apk add curl
-      echo "Creating something to put in the package..."
+      echo "创建上传文件"
       echo "${PACKAGE_VERSION}" > version.txt
       echo "version.txt" > includefiles.lst
       tar -czvf ${CI_PROJECT_NAME}.${PACKAGE_VERSION}.tar.gz -T includefiles.lst
-      if [[ $CI_COMMIT_REF_PROTECTED == "false" ]]; then
-        echo "To prevent clutter, packages are not pushed or download tested unless the branch is protected - they are available in job artifacts for inspection."
-      else
-        echo "Pushing package to registry."  
-        curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file ${CI_PROJECT_NAME}.${PACKAGE_VERSION}.tar.gz ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_PROJECT_NAME}/${PACKAGE_VERSION}/${CI_PROJECT_NAME}.${PACKAGE_VERSION}.tar.gz
-      fi
+      curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file ${CI_PROJECT_NAME}.${PACKAGE_VERSION}.tar.gz ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_PROJECT_NAME}/${PACKAGE_VERSION}/${CI_PROJECT_NAME}.${PACKAGE_VERSION}.tar.gz
+      
   artifacts:
     paths:
       - '*.tar.gz'
 
-do_gitlab_release:
+release-package-job:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli
   rules:
     - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_REF_PROTECTED != "false"'
-      #This last rule will do a release for any protected branch. Literal branch names can be used if desired.
-
   script:
     - > 
-      release-cli create --name ${PACKAGE_VERSION} --description $CI_COMMIT_REF_NAME-$CI_JOB_ID
-      --tag-name ${PACKAGE_VERSION} --ref $CI_COMMIT_SHA
-      --assets-link "{\"name\":\"Packaged Artifact\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_PROJECT_NAME}/${PACKAGE_VERSION}/${CI_PROJECT_NAME}.${PACKAGE_VERSION}.tar.gz\"}"
+      release-cli create 
+      --name "$PACKAGE_VERSION"
+      --description "## ${PACKAGE_VERSION}-$CI_COMMIT_REF_NAME"
+      --tag-name "$PACKAGE_VERSION"
+      --ref "$CI_COMMIT_SHA"
+      --assets-link "{\"name\":\"test1.txt\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_PROJECT_NAME}/${PACKAGE_VERSION}/${CI_PROJECT_NAME}.${PACKAGE_VERSION}.tar.gz\"}"
+      --assets-link "{\"name\":\"test2.txt\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_PROJECT_NAME}/${PACKAGE_VERSION}/${CI_PROJECT_NAME}.${PACKAGE_VERSION}1.tar.gz\"}"
